@@ -1,3 +1,25 @@
+/**
+ * @description Handles incoming and outgoing WhatsApp webhook requests from Meta's API.
+ * This class provides REST endpoints for message delivery status updates and webhook verification.
+ * It also supports signature validation, session updates, and optional email debugging.
+ *
+ * @group Webhooks
+ * @author Andrew Clark
+ * @date 2025-10-10
+ *
+ * @methods
+ *  - handlePost(): Processes incoming WhatsApp webhook POST requests.
+ *  - handleGet(): Handles webhook verification requests from Meta.
+ *  - setConstants(): Loads configuration values from custom metadata.
+ *  - getMessagingSession(String): Retrieves the corresponding MessagingSession record by recipient number.
+ *  - getStatus(String): Parses the JSON body to extract message status data.
+ *  - createDateTimeValue(String): Converts a timestamp string into a Datetime value.
+ *  - updateMessagingSession(MessagingSession, String, Datetime): Updates a session record based on message status.
+ *  - verifySignature(String, String, String): Verifies the request authenticity using HMAC-SHA256.
+ *  - createExpectedSignature(String, String): Generates the expected HMAC-SHA256 signature.
+ *  - sendJsonPackageToEmail(String, String, String): Sends a JSON payload to an email address for debugging.
+ *  - setResponse(RestResponse, Integer, String): Standardizes REST responses.
+ */
 @RestResource(urlMapping='/webhooks/whatsapp')
 global class WhatsappReceiver {
     
@@ -9,6 +31,10 @@ global class WhatsappReceiver {
     private static Integer SUCCESS_CODE;
     private static String APP_SECRET;
     
+    /**
+     * @description Loads constant values from the WhatsappWebhook__mdt metadata record.
+     * These include email settings, verification tokens, status codes, and app secret.
+     */
     private static void setConstants() {
         if (TO_ADDRESS == null || ORG_WIDE_EMAIL_ADDRESS == null || VERIFY_TOKEN == null || 
         ERROR_CODE == null || SEND_EMAIL == null || SUCCESS_CODE == null || APP_SECRET == null) {
@@ -28,6 +54,11 @@ global class WhatsappReceiver {
         }
     }
     
+    /**
+     * @description Handles incoming webhook POST requests from WhatsApp Cloud API.
+     * Validates the signature, updates related MessagingSession records,
+     * and optionally sends debug email notifications.
+     */
     @HttpPost
     global static void handlePost() {
         RestRequest request = RestContext.request;
@@ -63,6 +94,11 @@ global class WhatsappReceiver {
         
     }
     
+    /**
+     * @description Handles webhook verification (GET) requests from WhatsApp.
+     * Verifies the `hub.verify_token` against stored metadata and returns
+     * the `hub.challenge` value if successful.
+     */
     @HttpGet
     global static void handleGet() {
         RestRequest request = RestContext.request;
@@ -88,6 +124,12 @@ global class WhatsappReceiver {
         }
     }
     
+    /**
+     * @description Retrieves the active MessagingSession record associated
+     * with the provided WhatsApp recipient number.
+     * @param recipientNumber The WhatsApp recipient's phone number.
+     * @return The related MessagingSession record.
+     */
     private static MessagingSession getMessagingSession(String recipientNumber) {
         return [
             SELECT Id, ConversationId, SentDate__c, ReadDate__c, DeliveredDate__c, SendFailed__c
@@ -97,6 +139,12 @@ global class WhatsappReceiver {
         ];
     }
     
+    /**
+     * @description Parses a WhatsApp webhook JSON body into a strongly-typed wrapper
+     * and extracts the status object for processing.
+     * @param jsonBody The raw JSON payload from the webhook request.
+     * @return The Status object containing message state and timestamp data.
+     */
     private static WhatsAppWebhookWrapper.Status getStatus(String jsonBody) {
         WhatsAppWebhookWrapper data = WhatsAppWebhookWrapper.parse(jsonBody);
         
@@ -104,11 +152,24 @@ global class WhatsappReceiver {
 		return data.entry[0].changes[0].value.statuses[0];
     }
     
+    
+    /**
+     * @description Converts a UNIX epoch timestamp (in seconds) into a Salesforce Datetime value.
+     * @param timeStamp The string timestamp value (epoch seconds).
+     * @return A Datetime instance representing the timestamp.
+     */
     private static Datetime createDateTimeValue(String timeStamp) {
         Integer epochTime = Integer.valueOf(timeStamp);
         return Datetime.newInstance(1970, 1, 1, 0, 0, 0).addSeconds(epochTime);
     }
     
+    /**
+     * @description Updates the specified MessagingSession record fields based on the
+     * WhatsApp message delivery status. Handles 'sent', 'delivered', 'read', and 'failed' states.
+     * @param session The MessagingSession record to update.
+     * @param status The status string from the webhook payload.
+     * @param updatedTimestamp The Datetime value corresponding to the status update.
+     */
     private static void updateMessagingSession(MessagingSession session, String status, Datetime updatedTimestamp) {
         Boolean needsUpdate = false;
     
@@ -134,6 +195,9 @@ global class WhatsappReceiver {
                     if (session.SentDate__c == null) {
                         session.SentDate__c = updatedTimestamp;
                     }
+                    if (session.DeliveredDate__c == null) {
+                        session.DeliveredDate__c = updatedTimestamp;
+                    }
                     needsUpdate = true;
                 }
             }
@@ -153,7 +217,14 @@ global class WhatsappReceiver {
         }
     }
     
-    
+    /**
+     * @description Validates the webhook request signature to confirm authenticity.
+     * Compares the provided HMAC-SHA256 signature with the expected signature.
+     * @param payload The JSON request body as a string.
+     * @param signatureHeader The 'X-Hub-Signature-256' header from the request.
+     * @param appSecret The application secret key from metadata.
+     * @return True if the signature is valid; otherwise, false.
+     */
     private static Boolean verifySignature(String payload, String signatureHeader, String appSecret) {
         String providedSignature = signatureHeader.replace('sha256=', '');
         String expectedSignature = createExpectedSignature(payload, appSecret);
@@ -161,6 +232,12 @@ global class WhatsappReceiver {
         return providedSignature.equalsIgnoreCase(expectedSignature);
     }
 
+    /**
+     * @description Generates the expected HMAC-SHA256 signature for the given payload and app secret.
+     * @param payload The request body as a string.
+     * @param appSecret The secret key used for signature generation.
+     * @return The generated hexadecimal signature string.
+     */
     @testVisible
     private static String createExpectedSignature(String payload, String appSecret) {        
         Blob mac = Crypto.generateMac('HmacSHA256', Blob.valueOf(payload), Blob.valueOf(appSecret));
@@ -168,6 +245,12 @@ global class WhatsappReceiver {
         return EncodingUtil.convertToHex(mac);
     }
     
+    /**
+     * @description Sends an email containing the raw JSON payload for debugging or logging purposes.
+     * @param toEmailAddress The destination email address for debugging.
+     * @param orgWideEmailAddress The Org-Wide Email Address to use as the sender.
+     * @param body The email body content containing the JSON payload.
+     */
     private static void sendJsonPackageToEmail(String toEmailAddress, String orgWideEmailAddress, String body) {
         Messaging.SingleEmailMessage email = new Messaging.SingleEmailMessage();
         
@@ -182,6 +265,13 @@ global class WhatsappReceiver {
         Messaging.sendEmail(new List<Messaging.SingleEmailMessage>{ email });
     }
 
+    /**
+     * @description Configures and returns a standardized REST response object.
+     * @param response The RestResponse instance to modify.
+     * @param statusCode The HTTP status code to assign.
+     * @param body The response body to include (JSON or text).
+     * @return The modified RestResponse object.
+     */
     private static RestResponse setResponse(RestResponse response, Integer statusCode, String body) {
         response.statusCode = statusCode;
         response.responseBody = Blob.valueOf(body);
