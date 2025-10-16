@@ -10,11 +10,12 @@
  * @methods
  *  - handlePost(): Processes incoming WhatsApp webhook POST requests.
  *  - handleGet(): Handles webhook verification requests from Meta.
- *  - setConstants(): Loads configuration values from custom metadata.
+ *  - initializeConfig(): Loads configuration values from custom metadata.
  *  - getMessagingSession(String): Retrieves the corresponding MessagingSession record by recipient number.
  *  - getStatus(String): Parses the JSON body to extract message status data.
  *  - createDateTimeValue(String): Converts a timestamp string into a Datetime value.
- *  - updateMessagingSession(MessagingSession, String, Datetime): Updates a session record based on message status.
+ *  - upsertRecord(sObject, WhatsAppWebhookWrapper.Status, Id): Updates a record based on message status.
+ *  - upsertWhatsAppReceipts(WhatsAppWebhookWrapper.Status, Id): Updates a WhatsAppReceipt__c record.
  *  - verifySignature(String, String, String): Verifies the request authenticity using HMAC-SHA256.
  *  - createExpectedSignature(String, String): Generates the expected HMAC-SHA256 signature.
  *  - sendJsonPackageToEmail(String, String, String): Sends a JSON payload to an email address for debugging.
