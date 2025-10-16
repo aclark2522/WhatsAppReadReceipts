@@ -1,3 +1,7 @@
+/**
+ * Wrapper class for received WhatsApp webhooks 
+ * Enforces strict typing
+ */
 public class WhatsAppWebhookWrapper {
     @JsonName('object')
     public String objectType { get; set; }

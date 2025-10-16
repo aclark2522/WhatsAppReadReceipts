@@ -3,6 +3,8 @@ private class WhatsappReceiverTest {
     private final static String REQUEST_URL = '/services/apexrest/webhooks/whatsapp';
     private final static String CHANNEL_KEY = '097616747092986';
     private final static Datetime NOW = Datetime.now();
+
+    // Initialize basic map easier maintainability
     private static Map<String, Object> JSON_MAP = new Map<String, Object>{
         'object' => 'whatsapp_business_account',
         'entry' => new List<Object>{
@@ -25,6 +27,7 @@ private class WhatsappReceiverTest {
         }
     };
 
+    // Create metadata 
     @TestSetup
     static void setupTestData() {        
         MessagingChannel channel = new MessagingChannel(
@@ -46,6 +49,9 @@ private class WhatsappReceiverTest {
         insert channel;
     }
     
+    /**
+     * @description test to confirm a POST request is succesful with a valid WhatsAppReceipt__c record.
+     */
     @isTest
     static void testHandlePostSuccessWithWhatsAppReceipt() {
         Id sessionId = addObjects();
@@ -75,6 +81,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
     }
 
+    /**
+     * @description test to confirm a POST request is succesful with the 'sent' status.
+     */
     @isTest
     static void testHandlePostSuccessSent() {
         addObjects();
@@ -98,6 +107,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
     }
     
+    /**
+     * @description test to confirm a POST request is succesful with the 'delivered' status.
+     */
     @isTest
     static void testHandlePostSuccessDelivered() {
         addObjects();
@@ -122,6 +134,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
     }
     
+    /**
+     * @description test to confirm a POST request is succesful with the 'read' status.
+     */
     @isTest
     static void testHandlePostSuccessRead() {
         addObjects();
@@ -146,6 +161,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
     }
     
+    /**
+     * @description test to confirm a POST request is succesful with the 'failed' status.
+     */
     @isTest
     static void testHandlePostSuccessSendFailed() {
         addObjects();
@@ -170,6 +188,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
     }
     
+    /**
+     * @description test to confirm a POST request is unsuccesful with an invalid 'X-Hub-Signature-256' header.
+     */
     @isTest
     static void testHandlePostinvalidHeader() {
         addObjects();
@@ -193,6 +214,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
     }
     
+    /**
+     * @description test to confirm a POST request is unsuccesful with an invalid 'value' object.
+     */
     @isTest
     static void testHandlePostinvalidValue() {
         addObjects();
@@ -229,6 +253,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
     }
     
+    /**
+     * @description test to confirm a POST request is unsuccesful with an invalid 'changes' object.
+     */
     @isTest
     static void testHandlePostinvalidChanges() {
         addObjects();
@@ -261,6 +288,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
     }
     
+    /**
+     * @description test to confirm a POST request is unsuccesful with an invalid 'entry' object.
+     */
     @isTest
     static void testHandlePostinvalidEntry() {
         addObjects();
@@ -288,6 +318,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
     }
     
+    /**
+     * @description test to confirm a POST request is unsuccesful with no MessagingSession found.
+     */
     @isTest
     static void testHandlePostinvalidMessagingSession() {
         addObjects();
@@ -312,6 +345,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
     }
 
+    /**
+     * @description test to confirm a GET request is succesful.
+     */
     @isTest
     static void testHandleGetSuccess() {
         WhatsappReceiver.initializeConfig();
@@ -335,6 +371,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('123456', response.responseBody.toString(), 'Response Body should be 123456');
     }
 
+    /**
+     * @description test to confirm a GET request is unsuccesful with incorrect 'hub.verify_token' value.
+     */
     @isTest
     static void testHandleGetInvalidVerifyToken() {
         
@@ -357,6 +396,9 @@ private class WhatsappReceiverTest {
         System.assertEquals('Incorrect verification Token', response.responseBody.toString(), 'Response Body should be Incorrect verification Token');
     }
     
+    /**
+     * @description test to confirm a GET request is unsuccesful with incorrect 'hub.mode' value.
+     */
     @isTest
     static void testHandleGetInvalidMode() {
         WhatsappReceiver.initializeConfig();
@@ -380,6 +422,10 @@ private class WhatsappReceiverTest {
         System.assertEquals('Incorrect mode', response.responseBody.toString(), 'Response Body should be Incorrect mode');
     }
     
+    /**
+     * @description create custom objects to avoid mixed DML exceptions.
+     * @return created MessagingSession Id.
+     */
     private static Id addObjects() {
         Id channelId = [
             SELECT Id
@@ -411,6 +457,12 @@ private class WhatsappReceiverTest {
         return session.Id;
     }
     
+    /**
+     * @description Retrieves the status value from the JSON_MAP for updates.
+     * @param fieldName The name of the field within the status object that needs updating.
+     * @param value The value of the field within the status object that needs updating.
+     * @return Updated JSON_MAP as a String.
+     */
     private static String updateStatus(String fieldName, String value) {
         Map<String, Object> jsonMap = JSON_MAP.clone();
         List<Object> entryList = (List<Object>) jsonMap.get('entry');
