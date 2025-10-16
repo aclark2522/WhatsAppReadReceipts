@@ -22,36 +22,18 @@
  */
 @RestResource(urlMapping='/webhooks/whatsapp')
 global class WhatsappReceiver {
-    
-    private static String TO_ADDRESS;
-    private static String ORG_WIDE_EMAIL_ADDRESS;
-    private static String VERIFY_TOKEN;
-    private static Integer ERROR_CODE;
-    private static Boolean SEND_EMAIL;
-    private static Integer SUCCESS_CODE;
-    private static String APP_SECRET;
+    private static WhatsappConfig config;
     
     /**
      * @description Loads constant values from the WhatsappWebhook__mdt metadata record.
      * These include email settings, verification tokens, status codes, and app secret.
      */
-    private static void setConstants() {
-        if (TO_ADDRESS == null || ORG_WIDE_EMAIL_ADDRESS == null || VERIFY_TOKEN == null || 
-        ERROR_CODE == null || SEND_EMAIL == null || SUCCESS_CODE == null || APP_SECRET == null) {
-            WhatsappWebhook__mdt constants = WhatsappWebhook__mdt.getInstance('Constants');
-            
-            if (constants != null) {
-                
-                TO_ADDRESS = constants.ToAddress__c;
-                ORG_WIDE_EMAIL_ADDRESS = constants.OrgWideEmail__c;
-                VERIFY_TOKEN = constants.VerifyToken__c;
-                ERROR_CODE = Integer.valueOf(constants.ErrorCode__c);
-                SUCCESS_CODE = Integer.valueOf(constants.SuccessCode__c);
-                SEND_EMAIL = constants.SendDebugEmail__c;
-                APP_SECRET = constants.AppSecret__c;
-                
-            }
+    private static void initializeConfig() {
+        
+        if (config == null) {
+            config = new WhatsappConfig();
         }
+        
     }
     
     /**
@@ -63,34 +45,46 @@ global class WhatsappReceiver {
     global static void handlePost() {
         RestRequest request = RestContext.request;
         RestResponse response = RestContext.response;
-        setConstants();
+        initializeConfig();
         
         String jsonBody = request.requestBody.toString();
         Map<String, String> headers = request.headers;
         
-        Boolean isValid = verifySignature(jsonBody, headers.get('X-Hub-Signature-256'), APP_SECRET);
-        if (isValid) {
-
-            WhatsAppWebhookWrapper.Status status = getStatus(jsonBody);     
-            String recipientNumber = status.recipient_id;     
-            MessagingSession session = getMessagingSession(recipientNumber);
-            Datetime dateTimeStamp = createDateTimeValue(status.timestamp);
-
-            updateMessagingSession(session, status.status, dateTimeStamp);
-
-            if (SEND_EMAIL) {
-                sendJsonPackageToEmail(TO_ADDRESS, ORG_WIDE_EMAIL_ADDRESS, jsonBody);
-            }
-            
-            Map<String, Boolean> responseBody = new Map<String, Boolean> {'Success' => true};
-            setResponse(response, SUCCESS_CODE, JSON.serialize(responseBody));
-            
-        } else {
-            
-            Map<String, Boolean> responseBody = new Map<String, Boolean> {'Success' => false};
-            setResponse(response, ERROR_CODE, JSON.serialize(responseBody));
-
+        Boolean isValid = verifySignature(jsonBody, headers.get('X-Hub-Signature-256'), config.APP_SECRET);
+        Map<String, Boolean> responseBody = new Map<String, Boolean>();
+        if (!isValid) {
+            responseBody.put('Success', false);
+            setResponse(response, config.ERROR_CODE, JSON.serialize(responseBody));
+            return;
         }
+        
+        WhatsAppWebhookWrapper.Status status = getStatus(jsonBody);
+        
+        if (status == null) {
+            responseBody.put('Success', false);
+            setResponse(response, config.ERROR_CODE, JSON.serialize(responseBody));
+            return;
+        }
+        
+        String recipientNumber = status.recipient_id;
+        MessagingSession session = getMessagingSession(recipientNumber);
+        
+        if (session == null) {
+            responseBody.put('Success', false);
+            setResponse(response, config.ERROR_CODE, JSON.serialize(responseBody));
+            return;
+        }
+        
+        Datetime dateTimeStamp = createDateTimeValue(status.timestamp);
+        
+        updateMessagingSession(session, status.status, dateTimeStamp);
+        
+        if (config.SEND_EMAIL) {
+            sendJsonPackageToEmail(config.TO_ADDRESS, config.ORG_WIDE_EMAIL_ADDRESS, jsonBody);
+        }
+        
+        responseBody.put('Success', true);
+        setResponse(response, config.SUCCESS_CODE, JSON.serialize(responseBody));
         
     }
     
@@ -102,26 +96,24 @@ global class WhatsappReceiver {
     @HttpGet
     global static void handleGet() {
         RestRequest request = RestContext.request;
-        RestResponse response = RestContext.response; 
-        setConstants();
+        RestResponse response = RestContext.response;
+        initializeConfig();
         
         String mode = request.params.get('hub.mode');
-        Boolean isMode;
-        if (mode == 'subscribe') {
-            isMode = true;
+        
+        if (mode != 'subscribe') {
+            setResponse(response, config.ERROR_CODE, 'Incorrect mode');
+            return;
         }
         
-        if (isMode) {
-            String verifyToken = request.params.get('hub.verify_token');
-            
-            if (verifyToken == VERIFY_TOKEN) {
-                setResponse(response, SUCCESS_CODE, request.params.get('hub.challenge'));
-            } else {
-                setResponse(response, ERROR_CODE, 'Incorrect verification Token');
-            }
-        } else {
-            setResponse(response, ERROR_CODE, 'Incorrect mode');
+        String verifyToken = request.params.get('hub.verify_token');
+        
+        if (verifyToken != config.VERIFY_TOKEN) {
+            setResponse(response, config.ERROR_CODE, 'Incorrect verification Token');
+            return;
         }
+        
+        setResponse(response, config.SUCCESS_CODE, request.params.get('hub.challenge'));
     }
     
     /**
@@ -131,12 +123,17 @@ global class WhatsappReceiver {
      * @return The related MessagingSession record.
      */
     private static MessagingSession getMessagingSession(String recipientNumber) {
-        return [
+        List<MessagingSession> sessions = [
             SELECT Id, ConversationId, SentDate__c, ReadDate__c, DeliveredDate__c, SendFailed__c
             FROM MessagingSession
             WHERE MessagingEndUserId IN (SELECT Id FROM MessagingEndUser WHERE MessagingPlatformKey = :recipientNumber)
             LIMIT 1
         ];
+        if (sessions.size() > 0) {
+            return sessions[0];
+        } else {
+            return null;
+        }
     }
     
     /**
@@ -146,10 +143,30 @@ global class WhatsappReceiver {
      * @return The Status object containing message state and timestamp data.
      */
     private static WhatsAppWebhookWrapper.Status getStatus(String jsonBody) {
-        WhatsAppWebhookWrapper data = WhatsAppWebhookWrapper.parse(jsonBody);
+        WhatsAppWebhookWrapper data;
+        try {
+            data = WhatsAppWebhookWrapper.parse(jsonBody);
+        } catch (Exception e) {
+            System.debug('Failed to parse WhatsApp webhook JSON: ' + e.getMessage());
+            return null;
+        }
         
         WhatsAppWebhookWrapper.Status status = new WhatsAppWebhookWrapper.Status();
-		return data.entry[0].changes[0].value.statuses[0];
+        if (data == null || data.entry == null || data.entry.isEmpty()) {
+            return null;
+        }
+    
+        WhatsAppWebhookWrapper.Entry firstEntry = data.entry[0];    
+        if (firstEntry.changes == null || firstEntry.changes.isEmpty()) {
+            return null;
+        }
+        
+        WhatsAppWebhookWrapper.Change firstChange = firstEntry.changes[0];
+        if (firstChange.value == null || firstChange.value.statuses == null || firstChange.value.statuses.isEmpty()) {
+            return null;
+        }
+        
+        return firstChange.value.statuses[0];
     }
     
     
@@ -172,7 +189,7 @@ global class WhatsappReceiver {
      */
     private static void updateMessagingSession(MessagingSession session, String status, Datetime updatedTimestamp) {
         Boolean needsUpdate = false;
-    
+        
         switch on status.toLowerCase().trim() {
             when 'sent' {
                 if (session.SentDate__c == null) {
@@ -202,7 +219,7 @@ global class WhatsappReceiver {
                 }
             }
             when 'failed' {
-                if (session.SendFailed__c == false) {
+                if (session.SendFailed__c == false & session.DeliveredDate__c == null) {
                     session.SendFailed__c = true;
                     if (session.SentDate__c == null) {
                         session.SentDate__c = updatedTimestamp;
@@ -211,7 +228,7 @@ global class WhatsappReceiver {
                 }
             }
         }
-    
+        
         if (needsUpdate) {
             update session;
         }
@@ -231,7 +248,7 @@ global class WhatsappReceiver {
         
         return providedSignature.equalsIgnoreCase(expectedSignature);
     }
-
+    
     /**
      * @description Generates the expected HMAC-SHA256 signature for the given payload and app secret.
      * @param payload The request body as a string.
@@ -239,7 +256,7 @@ global class WhatsappReceiver {
      * @return The generated hexadecimal signature string.
      */
     @testVisible
-    private static String createExpectedSignature(String payload, String appSecret) {        
+    private static String createExpectedSignature(String payload, String appSecret) {
         Blob mac = Crypto.generateMac('HmacSHA256', Blob.valueOf(payload), Blob.valueOf(appSecret));
         
         return EncodingUtil.convertToHex(mac);
@@ -256,7 +273,7 @@ global class WhatsappReceiver {
         
         email.setOrgWideEmailAddressId(
             [SELECT Id FROM OrgWideEmailAddress WHERE Address = :orgWideEmailAddress LIMIT 1].Id
-        );
+            );
         
         email.setSubject('JSON: ' + Datetime.now().format('dd-MM-yyy h:mm a'));
         email.setToAddresses(new List<String> {toEmailAddress});
@@ -264,7 +281,7 @@ global class WhatsappReceiver {
         
         Messaging.sendEmail(new List<Messaging.SingleEmailMessage>{ email });
     }
-
+    
     /**
      * @description Configures and returns a standardized REST response object.
      * @param response The RestResponse instance to modify.
