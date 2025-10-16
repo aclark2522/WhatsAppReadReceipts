@@ -22,12 +22,14 @@
  */
 @RestResource(urlMapping='/webhooks/whatsapp')
 global class WhatsappReceiver {
+    @testVisible
     private static WhatsappConfig config;
     
     /**
      * @description Loads constant values from the WhatsappWebhook__mdt metadata record.
      * These include email settings, verification tokens, status codes, and app secret.
      */
+    @testVisible
     private static void initializeConfig() {
         
         if (config == null) {
@@ -55,6 +57,7 @@ global class WhatsappReceiver {
         if (!isValid) {
             responseBody.put('Success', false);
             setResponse(response, config.ERROR_CODE, JSON.serialize(responseBody));
+            
             return;
         }
         
@@ -63,6 +66,7 @@ global class WhatsappReceiver {
         if (status == null) {
             responseBody.put('Success', false);
             setResponse(response, config.ERROR_CODE, JSON.serialize(responseBody));
+            
             return;
         }
         
@@ -72,12 +76,12 @@ global class WhatsappReceiver {
         if (session == null) {
             responseBody.put('Success', false);
             setResponse(response, config.ERROR_CODE, JSON.serialize(responseBody));
+            
             return;
         }
         
-        Datetime dateTimeStamp = createDateTimeValue(status.timestamp);
-        
-        updateMessagingSession(session, status.status, dateTimeStamp);
+        upsertRecord(session, status, null);
+        upsertWhatsAppReceipts(status, session.Id);
         
         if (config.SEND_EMAIL) {
             sendJsonPackageToEmail(config.TO_ADDRESS, config.ORG_WIDE_EMAIL_ADDRESS, jsonBody);
@@ -103,6 +107,7 @@ global class WhatsappReceiver {
         
         if (mode != 'subscribe') {
             setResponse(response, config.ERROR_CODE, 'Incorrect mode');
+            
             return;
         }
         
@@ -110,6 +115,7 @@ global class WhatsappReceiver {
         
         if (verifyToken != config.VERIFY_TOKEN) {
             setResponse(response, config.ERROR_CODE, 'Incorrect verification Token');
+            
             return;
         }
         
@@ -129,11 +135,15 @@ global class WhatsappReceiver {
             WHERE MessagingEndUserId IN (SELECT Id FROM MessagingEndUser WHERE MessagingPlatformKey = :recipientNumber)
             LIMIT 1
         ];
+        
         if (sessions.size() > 0) {
+            
             return sessions[0];
         } else {
+            
             return null;
         }
+        
     }
     
     /**
@@ -148,21 +158,26 @@ global class WhatsappReceiver {
             data = WhatsAppWebhookWrapper.parse(jsonBody);
         } catch (Exception e) {
             System.debug('Failed to parse WhatsApp webhook JSON: ' + e.getMessage());
+            
             return null;
         }
-        
-        WhatsAppWebhookWrapper.Status status = new WhatsAppWebhookWrapper.Status();
+
         if (data == null || data.entry == null || data.entry.isEmpty()) {
+            
             return null;
         }
     
-        WhatsAppWebhookWrapper.Entry firstEntry = data.entry[0];    
+        WhatsAppWebhookWrapper.Entry firstEntry = data.entry[0]; 
+        
         if (firstEntry.changes == null || firstEntry.changes.isEmpty()) {
+            
             return null;
         }
         
         WhatsAppWebhookWrapper.Change firstChange = firstEntry.changes[0];
+        
         if (firstChange.value == null || firstChange.value.statuses == null || firstChange.value.statuses.isEmpty()) {
+            
             return null;
         }
         
@@ -177,61 +192,8 @@ global class WhatsappReceiver {
      */
     private static Datetime createDateTimeValue(String timeStamp) {
         Integer epochTime = Integer.valueOf(timeStamp);
+        
         return Datetime.newInstance(1970, 1, 1, 0, 0, 0).addSeconds(epochTime);
-    }
-    
-    /**
-     * @description Updates the specified MessagingSession record fields based on the
-     * WhatsApp message delivery status. Handles 'sent', 'delivered', 'read', and 'failed' states.
-     * @param session The MessagingSession record to update.
-     * @param status The status string from the webhook payload.
-     * @param updatedTimestamp The Datetime value corresponding to the status update.
-     */
-    private static void updateMessagingSession(MessagingSession session, String status, Datetime updatedTimestamp) {
-        Boolean needsUpdate = false;
-        
-        switch on status.toLowerCase().trim() {
-            when 'sent' {
-                if (session.SentDate__c == null) {
-                    session.SentDate__c = updatedTimestamp;
-                    needsUpdate = true;
-                }
-            }
-            when 'delivered' {
-                if (session.DeliveredDate__c == null) {
-                    session.DeliveredDate__c = updatedTimestamp;
-                    if (session.SentDate__c == null) {
-                        session.SentDate__c = updatedTimestamp;
-                    }
-                    needsUpdate = true;
-                }
-            }
-            when 'read' {
-                if (session.ReadDate__c == null) {
-                    session.ReadDate__c = updatedTimestamp;
-                    if (session.SentDate__c == null) {
-                        session.SentDate__c = updatedTimestamp;
-                    }
-                    if (session.DeliveredDate__c == null) {
-                        session.DeliveredDate__c = updatedTimestamp;
-                    }
-                    needsUpdate = true;
-                }
-            }
-            when 'failed' {
-                if (session.SendFailed__c == false & session.DeliveredDate__c == null) {
-                    session.SendFailed__c = true;
-                    if (session.SentDate__c == null) {
-                        session.SentDate__c = updatedTimestamp;
-                    }
-                    needsUpdate = true;
-                }
-            }
-        }
-        
-        if (needsUpdate) {
-            update session;
-        }
     }
     
     /**
@@ -292,6 +254,139 @@ global class WhatsappReceiver {
     private static RestResponse setResponse(RestResponse response, Integer statusCode, String body) {
         response.statusCode = statusCode;
         response.responseBody = Blob.valueOf(body);
+        
         return response;
+    }
+    
+    /**
+     * @description Gets a WhatsApp record using the wamId.
+     * @param whatsAppMessageId The Id given to a single message on the WhatSapp platform.
+     * @return Relevant WhatsAppReceipt__c record if found, otherwise, an empty object.
+     */
+    private static WhatsAppReceipt__c getWhatsAppReceipt(String whatsAppMessageId) {
+        WhatsAppReceipt__c whatsAppReceipt = new WhatsAppReceipt__c();
+        
+        List<WhatsAppReceipt__c> whatsAppReceiptsList = [
+            SELECT Id, SentDate__c, DeliveredDate__c, ReadDate__c, SendFailed__c, MessagingSession__c 
+            FROM WhatsAppReceipt__c
+            WHERE Name = :whatsAppMessageId
+            LIMIT 1
+        ];
+        system.debug(whatsAppMessageId);
+        
+        if (whatsAppReceiptsList.size() > 0) {
+            whatsAppReceipt = whatsAppReceiptsList[0];
+        }
+        
+        return whatsAppReceipt;
+    }
+    
+    /**
+     * @description Upsert a WhatsAppReceipt__c record in relation to a MessagingSession.
+     * @param whatsAppMessageId The Id given to a single message on the WhatSapp platform.
+     * @param messagingSessionId The Id for a MessagingSession record.
+     * @param status An instance of the WhatsAppWebhookWrapper.Status class.
+     */
+    private static void upsertWhatsAppReceipts(WhatsAppWebhookWrapper.Status status, Id messagingSessionId) {
+        WhatsAppReceipt__c whatsAppReceiptRecord = getWhatsAppReceipt(status.id);
+        upsertRecord(whatsAppReceiptRecord, status, messagingSessionId);
+    }
+    
+    /**
+     * @description Updates the specified sObject record fields based on the
+     * WhatsApp message delivery status. Handles 'sent', 'delivered', 'read', and 'failed' states.
+     * @param sObjectToUpdate The sObject record to update.
+     * @param status An instance of the WhatsAppWebhookWrapper.Status class.
+     * @param messagingSessionId The Id for a MessagingSession record.
+     */
+    private static void upsertRecord(sObject sObjectToUpdate, WhatsAppWebhookWrapper.Status statusObject, Id messagingSessionId) { 
+        Datetime dateTimeStamp = createDateTimeValue(statusObject.timestamp);
+        
+        Boolean needsUpdate = false;
+        
+		Datetime sentDate = (Datetime) sObjectToUpdate.get('SentDate__c');
+        Datetime deliveredDate = (Datetime) sObjectToUpdate.get('DeliveredDate__c');
+        Datetime readDate = (Datetime) sObjectToUpdate.get('ReadDate__c');
+        Boolean sendFailed = (Boolean) sObjectToUpdate.get('SendFailed__c');
+        
+        //Get metadata object name and details
+        String sObjectname = sObjectToUpdate.getSObjectType().getDescribe().getName();
+        
+        //Get all object type
+        Schema.SObjectType sobjType = Schema.getGlobalDescribe().get(sObjectname);
+        
+        // Get all fields
+        Map<String, Schema.sObjectField> sObjectFields = sobjType.getDescribe().fields.getMap();
+        
+        if (messagingSessionId != null) {
+            Id relationShipId = (Id) sObjectToUpdate.get('MessagingSession__c');
+            
+            if (relationShipId == null) {
+                sObjectToUpdate.put(sObjectFields.get('MessagingSession__c'), messagingSessionId);
+            }
+            
+        } 
+        
+        switch on statusObject.status.toLowerCase().trim() {
+            when 'sent' {
+                
+                if (sentDate == null) {
+                    sObjectToUpdate.put(sObjectFields.get('SentDate__c'), dateTimeStamp);
+                    needsUpdate = true;
+                }
+                
+            }
+            
+            when 'delivered' {
+                
+                if (deliveredDate == null) {
+                    sObjectToUpdate.put(sObjectFields.get('DeliveredDate__c'), dateTimeStamp);
+                    
+                    if (sentDate == null) {
+                        sObjectToUpdate.put(sObjectFields.get('SentDate__c'), dateTimeStamp);
+                    }
+                    
+                    needsUpdate = true;
+                }
+                
+            }
+            
+            when 'read' {
+                
+                if (readDate == null) {
+                    sObjectToUpdate.put(sObjectFields.get('ReadDate__c'), dateTimeStamp);
+                    
+                    if (sentDate == null) {
+                        sObjectToUpdate.put(sObjectFields.get('SentDate__c'), dateTimeStamp);
+                    }
+                    
+                    if (deliveredDate == null) {
+                        sObjectToUpdate.put(sObjectFields.get('DeliveredDate__c'), dateTimeStamp);
+                    }
+                    
+                    needsUpdate = true;
+                }
+                
+            }
+            
+            when 'failed' {
+                
+                if (sendFailed == false & deliveredDate == null) {
+                    sObjectToUpdate.put(sObjectFields.get('SendFailed__c'), true);
+                    
+                    if (sentDate == null) {
+                        sObjectToUpdate.put(sObjectFields.get('SentDate__c'), dateTimeStamp);
+                    }
+                    
+                    needsUpdate = true;
+                }
+                
+            }
+        }
+        
+        if (needsUpdate) {
+            upsert sObjectToUpdate;
+        }
+
     }
 }

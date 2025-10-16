@@ -3,18 +3,16 @@ private class WhatsappReceiverTest {
     private final static String REQUEST_URL = '/services/apexrest/webhooks/whatsapp';
     private final static String CHANNEL_KEY = '097616747092986';
     private final static Datetime NOW = Datetime.now();
-    private static String VERIFY_TOKEN;
-    private static String APP_SECRET;
     private static Map<String, Object> JSON_MAP = new Map<String, Object>{
         'object' => 'whatsapp_business_account',
         'entry' => new List<Object>{
             new Map<String, Object>{
-                'id' => '1234567890',
                 'changes' => new List<Object>{
                     new Map<String, Object>{
                         'value' => new Map<String, Object>{
                             'statuses' => new List<Object>{
                                 new Map<String, Object>{
+                                    'id' => '1234567890',
                                     'status' => 'sent',
                                     'timestamp' => '1759910419',
                                     'recipient_id' => '440000000000'
@@ -28,7 +26,7 @@ private class WhatsappReceiverTest {
     };
 
     @TestSetup
-    static void setupTestData() {
+    static void setupTestData() {        
         MessagingChannel channel = new MessagingChannel(
             ConsentType = 'ImplicitOptIn',
             IsActive = true,
@@ -36,7 +34,7 @@ private class WhatsappReceiverTest {
             IsRequireDoubleOptIn = false,
             IsRestrictedToBusinessHours = false,
             Language = 'en_US',
-            MasterLabel = '07526277094 (NEW)',
+            MasterLabel = 'TestMessageChannel',
             MessageType = 'WhatsApp',
             MessagingPlatformKey = CHANNEL_KEY,
             PlatformType = 'Enhanced',
@@ -46,57 +44,278 @@ private class WhatsappReceiverTest {
             EngagedResponse = 'An agent has joined the conversation'
         );
         insert channel;
-
-        MessagingEndUser messagingUser = new MessagingEndUser(
-            MessageType = 'WhatsApp',
-            MessagingChannelId = channel.Id,
-            MessagingConsentStatus = 'ImplicitlyOptedIn',
-            Name = 'Test MessagingUser',
-            MessagingPlatformKey = '440000000000',
-            HasInitialResponseSent = false
-        );
-        insert messagingUser;
-
-        MessagingSession session = new MessagingSession(
-            AgentType = 'Bot',
-            MessagingEndUserId = messagingUser.Id,
-            MessagingChannelId = channel.Id,
-            Origin = 'TriggeredOutbound',
-            Status = 'Ended'
-        );
-        insert session;
     }
-
+    
     @isTest
-    static void testHandlePost() {
-        setConstants();
-
-        Test.startTest();
+    static void testHandlePostSuccessWithWhatsAppReceipt() {
+        Id sessionId = addObjects();
+        insert new WhatsAppReceipt__c(
+            MessagingSession__c = sessionId,
+            SentDate__c = Datetime.now(),
+            Name = '1234567890'
+        );
+        
+		WhatsappReceiver.initializeConfig();
+        
         RestRequest request = new RestRequest();
         RestResponse response = new RestResponse();
         String jsonString = JSON.serialize(JSON_MAP);
 
         request.requestURI = REQUEST_URL;
         request.httpMethod = 'POST';
-        String sig = WhatsappReceiver.createExpectedSignature(jsonString, APP_SECRET);
-        request.addHeader('X-Hub-Signature-256', sig);
-
         request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', WhatsappReceiver.createExpectedSignature(jsonString, WhatsappReceiver.config.APP_SECRET));
+
         RestContext.request = request;
         RestContext.response = response;
 
         WhatsappReceiver.handlePost();
-        Test.stopTest();
 
-        System.assertEquals(200, response.statusCode, 'Status Code should be 200');
+        System.assertEquals(WhatsappReceiver.config.SUCCESS_CODE, response.statusCode, 'Status Code should be 200');
         System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
     }
 
     @isTest
-    static void testHandleGetSuccess() {
-        setConstants();
+    static void testHandlePostSuccessSent() {
+        addObjects();
+		WhatsappReceiver.initializeConfig();
         
-        Test.startTest();
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
+        String jsonString = JSON.serialize(JSON_MAP);
+
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'POST';
+        request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', WhatsappReceiver.createExpectedSignature(jsonString, WhatsappReceiver.config.APP_SECRET));
+
+        RestContext.request = request;
+        RestContext.response = response;
+
+        WhatsappReceiver.handlePost();
+
+        System.assertEquals(WhatsappReceiver.config.SUCCESS_CODE, response.statusCode, 'Status Code should be 200');
+        System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
+    }
+    
+    @isTest
+    static void testHandlePostSuccessDelivered() {
+        addObjects();
+		WhatsappReceiver.initializeConfig();
+        
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
+
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'POST';
+        String jsonString = updateStatus('status', 'delivered');
+        
+        request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', WhatsappReceiver.createExpectedSignature(jsonString, WhatsappReceiver.config.APP_SECRET));
+
+        RestContext.request = request;
+        RestContext.response = response;
+
+        WhatsappReceiver.handlePost();
+
+        System.assertEquals(WhatsappReceiver.config.SUCCESS_CODE, response.statusCode, 'Status Code should be 200');
+        System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
+    }
+    
+    @isTest
+    static void testHandlePostSuccessRead() {
+        addObjects();
+		WhatsappReceiver.initializeConfig();
+        
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
+
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'POST';
+        String jsonString = updateStatus('status', 'read');
+        
+        request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', WhatsappReceiver.createExpectedSignature(jsonString, WhatsappReceiver.config.APP_SECRET));
+
+        RestContext.request = request;
+        RestContext.response = response;
+
+        WhatsappReceiver.handlePost();
+
+        System.assertEquals(WhatsappReceiver.config.SUCCESS_CODE, response.statusCode, 'Status Code should be 200');
+        System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
+    }
+    
+    @isTest
+    static void testHandlePostSuccessSendFailed() {
+        addObjects();
+		WhatsappReceiver.initializeConfig();
+        
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
+
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'POST';
+        String jsonString = updateStatus('status', 'failed');
+        
+        request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', WhatsappReceiver.createExpectedSignature(jsonString, WhatsappReceiver.config.APP_SECRET));
+
+        RestContext.request = request;
+        RestContext.response = response;
+
+        WhatsappReceiver.handlePost();
+
+        System.assertEquals(WhatsappReceiver.config.SUCCESS_CODE, response.statusCode, 'Status Code should be 200');
+        System.assertEquals('{"Success":true}', response.responseBody.toString(), 'Response Body should be {"Success":true}');
+    }
+    
+    @isTest
+    static void testHandlePostinvalidHeader() {
+        addObjects();
+        WhatsappReceiver.initializeConfig();
+        
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
+        String jsonString = JSON.serialize(JSON_MAP);
+
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'POST';
+        request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', '123');
+
+        RestContext.request = request;
+        RestContext.response = response;
+
+        WhatsappReceiver.handlePost();
+
+        System.assertEquals(WhatsappReceiver.config.ERROR_CODE, response.statusCode, 'Status Code should be 400');
+        System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
+    }
+    
+    @isTest
+    static void testHandlePostinvalidValue() {
+        addObjects();
+        WhatsappReceiver.initializeConfig();
+        
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
+        Map<String, Object> body = new Map<String, Object>{
+            'object' => 'whatsapp_business_account',
+                'entry' => new List<Object>{
+                    new Map<String, Object>{
+                        'id' => '1234567890',
+                            'changes' => new List<Object>{
+                                new Map<String, Object>{
+                                    'value' => new Map<String, Object>()
+                                        }
+                            }
+                    }
+                }
+        };
+        String jsonString = JSON.serialize(body);
+
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'POST';
+        request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', WhatsappReceiver.createExpectedSignature(jsonString, WhatsappReceiver.config.APP_SECRET));
+
+        RestContext.request = request;
+        RestContext.response = response;
+
+        WhatsappReceiver.handlePost();
+
+        System.assertEquals(WhatsappReceiver.config.ERROR_CODE, response.statusCode, 'Status Code should be 400');
+        System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
+    }
+    
+    @isTest
+    static void testHandlePostinvalidChanges() {
+        addObjects();
+        WhatsappReceiver.initializeConfig();
+        
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
+        Map<String, Object> body = new Map<String, Object>{
+            'object' => 'whatsapp_business_account',
+                'entry' => new List<Object>{
+                    new Map<String, Object>{
+                        'id' => '1234567890',
+                            'changes' => new List<Object>()
+                    }
+                }
+        };
+        String jsonString = JSON.serialize(body);
+
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'POST';
+        request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', WhatsappReceiver.createExpectedSignature(jsonString, WhatsappReceiver.config.APP_SECRET));
+
+        RestContext.request = request;
+        RestContext.response = response;
+
+        WhatsappReceiver.handlePost();
+
+        System.assertEquals(WhatsappReceiver.config.ERROR_CODE, response.statusCode, 'Status Code should be 400');
+        System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
+    }
+    
+    @isTest
+    static void testHandlePostinvalidEntry() {
+        addObjects();
+        WhatsappReceiver.initializeConfig();
+        
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
+        Map<String, Object> body = new Map<String, Object>{
+            'object' => 'whatsapp_business_account',
+                'entry' => new List<Object>()
+        };
+        String jsonString = JSON.serialize(body);
+
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'POST';
+        request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', WhatsappReceiver.createExpectedSignature(jsonString, WhatsappReceiver.config.APP_SECRET));
+
+        RestContext.request = request;
+        RestContext.response = response;
+
+        WhatsappReceiver.handlePost();
+
+        System.assertEquals(WhatsappReceiver.config.ERROR_CODE, response.statusCode, 'Status Code should be 400');
+        System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
+    }
+    
+    @isTest
+    static void testHandlePostinvalidMessagingSession() {
+        addObjects();
+        WhatsappReceiver.initializeConfig();
+        
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
+
+        String jsonString = updateStatus('recipient_id', '440000000001');
+
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'POST';
+        request.requestBody = Blob.valueOf(jsonString);
+        request.addHeader('X-Hub-Signature-256', WhatsappReceiver.createExpectedSignature(jsonString, WhatsappReceiver.config.APP_SECRET));
+
+        RestContext.request = request;
+        RestContext.response = response;
+
+        WhatsappReceiver.handlePost();
+
+        System.assertEquals(WhatsappReceiver.config.ERROR_CODE, response.statusCode, 'Status Code should be 400');
+        System.assertEquals('{"Success":false}', response.responseBody.toString(), 'Response Body should be {"Success":false}');
+    }
+
+    @isTest
+    static void testHandleGetSuccess() {
+        WhatsappReceiver.initializeConfig();
+        
         RestRequest request = new RestRequest();
         RestResponse response = new RestResponse();
         
@@ -104,24 +323,21 @@ private class WhatsappReceiverTest {
         request.httpMethod = 'GET';
 
         request.addParameter('hub.mode', 'subscribe');
-        request.addParameter('hub.verify_token', VERIFY_TOKEN);
+        request.addParameter('hub.verify_token', WhatsappReceiver.config.VERIFY_TOKEN);
         request.addParameter('hub.challenge', '123456');
         
         RestContext.request = request;
         RestContext.response = response;
         
         WhatsappReceiver.handleGet();
-        Test.stopTest();
         
-        System.assertEquals(200, response.statusCode, 'Status Code should be 200');
+        System.assertEquals(WhatsappReceiver.config.SUCCESS_CODE, response.statusCode, 'Status Code should be 200');
         System.assertEquals('123456', response.responseBody.toString(), 'Response Body should be 123456');
     }
 
     @isTest
     static void testHandleGetInvalidVerifyToken() {
-        setConstants();
         
-        Test.startTest();
         RestRequest request = new RestRequest();
         RestResponse response = new RestResponse();
 
@@ -136,18 +352,76 @@ private class WhatsappReceiverTest {
         RestContext.response = response;
         
         WhatsappReceiver.handleGet();
-        Test.stopTest();
         
-        System.assertEquals(400, response.statusCode, 'Status Code should be 400');
+        System.assertEquals(WhatsappReceiver.config.ERROR_CODE, response.statusCode, 'Status Code should be 400');
         System.assertEquals('Incorrect verification Token', response.responseBody.toString(), 'Response Body should be Incorrect verification Token');
     }
+    
+    @isTest
+    static void testHandleGetInvalidMode() {
+        WhatsappReceiver.initializeConfig();
+        
+        RestRequest request = new RestRequest();
+        RestResponse response = new RestResponse();
 
-    private static void setConstants() {
-        WhatsappWebhook__mdt constants = WhatsappWebhook__mdt.getInstance('Constants');
-            
-        if (constants != null) {
-            VERIFY_TOKEN = constants.VerifyToken__c;
-            APP_SECRET = constants.AppSecret__c;
-        }
+        request.requestURI = REQUEST_URL;
+        request.httpMethod = 'GET';
+
+        request.addParameter('hub.mode', 'fail');
+        request.addParameter('hub.verify_token', WhatsappReceiver.config.VERIFY_TOKEN);
+        request.addParameter('hub.challenge', '123456');
+        
+        RestContext.request = request;
+        RestContext.response = response;
+        
+        WhatsappReceiver.handleGet();
+        
+        System.assertEquals(WhatsappReceiver.config.ERROR_CODE, response.statusCode, 'Status Code should be 400');
+        System.assertEquals('Incorrect mode', response.responseBody.toString(), 'Response Body should be Incorrect mode');
+    }
+    
+    private static Id addObjects() {
+        Id channelId = [
+            SELECT Id
+            FROM MessagingChannel
+            WHERE DeveloperName = 'TestMessageChannel'
+            LIMIT 1
+        ].Id;
+        
+        MessagingEndUser messagingUser = new MessagingEndUser(
+            MessageType = 'WhatsApp',
+            MessagingChannelId = channelId,
+            MessagingConsentStatus = 'ImplicitlyOptedIn',
+            Name = 'Test MessagingUser',
+            MessagingPlatformKey = '440000000000',
+            HasInitialResponseSent = false
+        );
+        
+        insert messagingUser;
+        
+		MessagingSession session = new MessagingSession(
+            AgentType = 'Bot',
+            MessagingEndUserId = messagingUser.Id,
+            MessagingChannelId = channelId,
+            Origin = 'TriggeredOutbound',
+            Status = 'Ended'
+        );
+        insert session;
+        
+        return session.Id;
+    }
+    
+    private static String updateStatus(String fieldName, String value) {
+        Map<String, Object> jsonMap = JSON_MAP.clone();
+        List<Object> entryList = (List<Object>) jsonMap.get('entry');
+        Map<String, Object> entryMap = (Map<String, Object>) entryList[0];
+        List<Object> changesList = (List<Object>) entryMap.get('changes');
+        Map<String, Object> changesMap = (Map<String, Object>) changesList[0];
+        Map<String, Object> valueMap = (Map<String, Object>) changesMap.get('value');
+        List<Object> statusesList = (List<Object>) valueMap.get('statuses');
+        Map<String, Object> statusMap = (Map<String, Object>) statusesList[0];
+        
+        statusMap.put(fieldName, value);
+        return JSON.serialize(jsonMap);
     }
 }
