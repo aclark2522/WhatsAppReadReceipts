@@ -11,8 +11,6 @@ public with sharing class WhatsappConfig {
     public Integer SUCCESS_CODE;
     public String APP_SECRET;
 
-    public final String BASE_URL = 'http://cashcalc.co.uk';
-
     public WhatsappConfig() {
         WhatsappWebhook__mdt constants = WhatsappWebhook__mdt.getInstance('Constants');
         if (constants == null) {
