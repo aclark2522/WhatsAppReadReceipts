@@ -268,7 +268,7 @@ global class WhatsappReceiver {
         WhatsAppReceipt__c whatsAppReceipt = new WhatsAppReceipt__c();
         
         List<WhatsAppReceipt__c> whatsAppReceiptsList = [
-            SELECT Id, SentDate__c, DeliveredDate__c, ReadDate__c, SendFailed__c, MessagingSession__c 
+            SELECT Id, SentDate__c, DeliveredDate__c, ReadDate__c, SendFailed__c, MessagingSession__c, Name 
             FROM WhatsAppReceipt__c
             WHERE Name = :whatsAppMessageId
             LIMIT 1
@@ -320,10 +320,14 @@ global class WhatsappReceiver {
         Map<String, Schema.sObjectField> sObjectFields = sobjType.getDescribe().fields.getMap();
         
         if (messagingSessionId != null) {
-            Id relationShipId = (Id) sObjectToUpdate.get('MessagingSession__c');
+            Id relationshipId = (Id) sObjectToUpdate.get('MessagingSession__c');
             
-            if (relationShipId == null) {
+            if (relationshipId == null) {
                 sObjectToUpdate.put(sObjectFields.get('MessagingSession__c'), messagingSessionId);
+                String name = (String) sObjectToUpdate.get('Name');
+                if (name != statusObject.Id) {
+                    sObjectToUpdate.put(sObjectFields.get('Name'), statusObject.Id);
+                }
             }
             
         } 
