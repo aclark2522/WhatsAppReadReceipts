@@ -24,7 +24,7 @@
 @RestResource(urlMapping='/webhooks/whatsapp')
 global class WhatsappReceiver {
     @testVisible
-    private static WhatsappConfig config;
+    private static WhatsappConfig CONFIG;
     
     /**
      * @description Loads constant values from the WhatsappWebhook__mdt metadata record.
@@ -33,8 +33,8 @@ global class WhatsappReceiver {
     @testVisible
     private static void initializeConfig() {
         
-        if (config == null) {
-            config = new WhatsappConfig();
+        if (CONFIG == null) {
+            CONFIG = new WhatsappConfig();
         }
         
     }
@@ -53,11 +53,11 @@ global class WhatsappReceiver {
         String jsonBody = request.requestBody.toString();
         Map<String, String> headers = request.headers;
         
-        Boolean isValid = verifySignature(jsonBody, headers.get('X-Hub-Signature-256'), config.APP_SECRET);
+        Boolean isValid = verifySignature(jsonBody, headers.get('X-Hub-Signature-256'), CONFIG.APP_SECRET);
         Map<String, Boolean> responseBody = new Map<String, Boolean>();
         if (!isValid) {
             responseBody.put('Success', false);
-            setResponse(response, config.ERROR_CODE, JSON.serialize(responseBody));
+            setResponse(response, CONFIG.ERROR_CODE, JSON.serialize(responseBody));
             
             return;
         }
@@ -66,7 +66,7 @@ global class WhatsappReceiver {
         
         if (status == null) {
             responseBody.put('Success', false);
-            setResponse(response, config.ERROR_CODE, JSON.serialize(responseBody));
+            setResponse(response, CONFIG.ERROR_CODE, JSON.serialize(responseBody));
             
             return;
         }
@@ -76,7 +76,7 @@ global class WhatsappReceiver {
         
         if (session == null) {
             responseBody.put('Success', false);
-            setResponse(response, config.ERROR_CODE, JSON.serialize(responseBody));
+            setResponse(response, CONFIG.ERROR_CODE, JSON.serialize(responseBody));
             
             return;
         }
@@ -84,12 +84,12 @@ global class WhatsappReceiver {
         upsertRecord(session, status, null);
         upsertWhatsAppReceipts(status, session.Id);
         
-        if (config.SEND_EMAIL) {
-            sendJsonPackageToEmail(config.TO_ADDRESS, config.ORG_WIDE_EMAIL_ADDRESS, jsonBody);
+        if (CONFIG.SEND_EMAIL) {
+            sendJsonPackageToEmail(CONFIG.TO_ADDRESS, CONFIG.ORG_WIDE_EMAIL_ADDRESS, jsonBody);
         }
         
         responseBody.put('Success', true);
-        setResponse(response, config.SUCCESS_CODE, JSON.serialize(responseBody));
+        setResponse(response, CONFIG.SUCCESS_CODE, JSON.serialize(responseBody));
         
     }
     
@@ -107,20 +107,20 @@ global class WhatsappReceiver {
         String mode = request.params.get('hub.mode');
         
         if (mode != 'subscribe') {
-            setResponse(response, config.ERROR_CODE, 'Incorrect mode');
+            setResponse(response, CONFIG.ERROR_CODE, 'Incorrect mode');
             
             return;
         }
         
         String verifyToken = request.params.get('hub.verify_token');
         
-        if (verifyToken != config.VERIFY_TOKEN) {
-            setResponse(response, config.ERROR_CODE, 'Incorrect verification Token');
+        if (verifyToken != CONFIG.VERIFY_TOKEN) {
+            setResponse(response, CONFIG.ERROR_CODE, 'Incorrect verification Token');
             
             return;
         }
         
-        setResponse(response, config.SUCCESS_CODE, request.params.get('hub.challenge'));
+        setResponse(response, CONFIG.SUCCESS_CODE, request.params.get('hub.challenge'));
     }
     
     /**
