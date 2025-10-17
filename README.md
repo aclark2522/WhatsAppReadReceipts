@@ -257,6 +257,7 @@ Automatically populated by the webhook to maintain a complete record of each mes
 | `ReadDate__c` | Datetime | The timestamp when a message was marked as “read”. |
 | `SendFailed__c` | Boolean | True if the message failed to send. |
 | `MessagingSession__c` | Master-Detail | Relationship to the `MessagingSession` record. Required. |
+| `Name` | String | Stores the WhatsApp Messaging Id. |
 
 ---
 
