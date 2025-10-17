@@ -277,7 +277,7 @@ By leveraging **Custom Metadata**, it enables webhook management without code re
 
 ## 🌍 Example Endpoints
 
-| **Method** | **Endpoint**
+| **Method** | **Endpoint** | **Purpose** |
 |-------------|--------------|-------------|
 | `GET` | `/services/apexrest/webhooks/whatsapp?hub.mode={{mode}}&hub.challenge={{challenge}}&hub.verify_token={{verify_token}}` | Webhook verification handshake |
 | `POST` | `/services/apexrest/webhooks/whatsapp` | Message event notifications |
