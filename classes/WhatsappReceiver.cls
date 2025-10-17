@@ -134,6 +134,7 @@ global class WhatsappReceiver {
             SELECT Id, ConversationId, SentDate__c, ReadDate__c, DeliveredDate__c, SendFailed__c
             FROM MessagingSession
             WHERE MessagingEndUserId IN (SELECT Id FROM MessagingEndUser WHERE MessagingPlatformKey = :recipientNumber)
+            ORDER BY CreatedDate DESC
             LIMIT 1
         ];
         
