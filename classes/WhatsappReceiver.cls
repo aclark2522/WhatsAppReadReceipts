@@ -131,12 +131,12 @@ global class WhatsappReceiver {
      */
     private static MessagingSession getMessagingSession(String recipientNumber) {
         List<MessagingSession> sessions = [
-            SELECT Id, ConversationId, SentDate__c, ReadDate__c, DeliveredDate__c, SendFailed__c
-            FROM MessagingSession
-            WHERE MessagingEndUserId IN (SELECT Id FROM MessagingEndUser WHERE MessagingPlatformKey = :recipientNumber)
-            ORDER BY CreatedDate DESC
-            LIMIT 1
-        ];
+             SELECT Id, ConversationId, SentDate__c, ReadDate__c, DeliveredDate__c, SendFailed__c
+             FROM MessagingSession
+             WHERE MessagingEndUserId IN (SELECT Id FROM MessagingEndUser WHERE MessagingPlatformKey = :recipientNumber)
+             ORDER BY CreatedDate DESC
+             LIMIT 1
+         ];
         
         if (sessions.size() > 0) {
             
@@ -163,13 +163,13 @@ global class WhatsappReceiver {
             
             return null;
         }
-
+        
         if (data == null || data.entry == null || data.entry.isEmpty()) {
             
             return null;
         }
-    
-        WhatsAppWebhookWrapper.Entry firstEntry = data.entry[0]; 
+        
+        WhatsAppWebhookWrapper.Entry firstEntry = data.entry[0];
         
         if (firstEntry.changes == null || firstEntry.changes.isEmpty()) {
             
@@ -269,11 +269,11 @@ global class WhatsappReceiver {
         WhatsAppReceipt__c whatsAppReceipt = new WhatsAppReceipt__c();
         
         List<WhatsAppReceipt__c> whatsAppReceiptsList = [
-            SELECT Id, SentDate__c, DeliveredDate__c, ReadDate__c, SendFailed__c, MessagingSession__c, Name 
-            FROM WhatsAppReceipt__c
-            WHERE Name = :whatsAppMessageId
-            LIMIT 1
-        ];
+             SELECT Id, SentDate__c, DeliveredDate__c, ReadDate__c, SendFailed__c, MessagingSession__c, Name 
+             FROM WhatsAppReceipt__c
+             WHERE Name = :whatsAppMessageId
+             LIMIT 1
+         ];
         system.debug(whatsAppMessageId);
         
         if (whatsAppReceiptsList.size() > 0) {
@@ -301,37 +301,38 @@ global class WhatsappReceiver {
      * @param status An instance of the WhatsAppWebhookWrapper.Status class.
      * @param messagingSessionId The Id for a MessagingSession record.
      */
-    private static void upsertRecord(sObject sObjectToUpdate, WhatsAppWebhookWrapper.Status statusObject, Id messagingSessionId) { 
+    private static void upsertRecord(sObject sObjectToUpdate, WhatsAppWebhookWrapper.Status statusObject, Id messagingSessionId) {
         Datetime dateTimeStamp = createDateTimeValue(statusObject.timestamp);
         
         Boolean needsUpdate = false;
         
-		Datetime sentDate = (Datetime) sObjectToUpdate.get('SentDate__c');
+        Datetime sentDate = (Datetime) sObjectToUpdate.get('SentDate__c');
         Datetime deliveredDate = (Datetime) sObjectToUpdate.get('DeliveredDate__c');
         Datetime readDate = (Datetime) sObjectToUpdate.get('ReadDate__c');
         Boolean sendFailed = (Boolean) sObjectToUpdate.get('SendFailed__c');
         
         //Get metadata object name and details
-        String sObjectname = sObjectToUpdate.getSObjectType().getDescribe().getName();
+        String sObjectName = sObjectToUpdate.getSObjectType().getDescribe().getName();
         
         //Get all object type
-        Schema.SObjectType sobjType = Schema.getGlobalDescribe().get(sObjectname);
+        Schema.SObjectType sobjType = Schema.getGlobalDescribe().get(sObjectName);
         
         // Get all fields
         Map<String, Schema.sObjectField> sObjectFields = sobjType.getDescribe().fields.getMap();
         
         if (messagingSessionId != null) {
-            Id relationshipId = (Id) sObjectToUpdate.get('MessagingSession__c');
+            Id relationShipId = (Id) sObjectToUpdate.get('MessagingSession__c');
             
-            if (relationshipId == null) {
+            if (relationShipId == null) {
                 sObjectToUpdate.put(sObjectFields.get('MessagingSession__c'), messagingSessionId);
                 String name = (String) sObjectToUpdate.get('Name');
-                if (name != statusObject.Id) {
-                    sObjectToUpdate.put(sObjectFields.get('Name'), statusObject.Id);
+                String sanitizedWhatsAppMessagingId = sanitizeWhatsAppId(statusObject.Id);
+                if (name != sanitizedWhatsAppMessagingId) {
+                    sObjectToUpdate.put(sObjectFields.get('Name'), sanitizedWhatsAppMessagingId);
                 }
             }
             
-        } 
+        }
         
         switch on statusObject.status.toLowerCase().trim() {
             when 'sent' {
@@ -393,6 +394,15 @@ global class WhatsappReceiver {
         if (needsUpdate) {
             upsert sObjectToUpdate;
         }
-
+        
+    }
+    
+    /**
+     * @description Removes redundant characters from WhatsApp Message Id
+     * @param whatsAppId The Id assigned to the WhatsApp Webhook by WhatsApp.
+     * @return Stripped down Id.
+     */
+    private static String sanitizeWhatsAppId (String whatsAppId) {
+        return whatsAppId.replace('wamid.', '');
     }
 }
